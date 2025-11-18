@@ -4,7 +4,7 @@ a C++ version of ashmaize <br>
 Only C++ file is written <br>
 Rust file for compare correctness and speed
 
-Follow C++11 standard <br>
+use C++11 standard and libsodium <br>
 non-standard part: <br>
 __uint128_t <br>
 case 0 ... 4: <br>
