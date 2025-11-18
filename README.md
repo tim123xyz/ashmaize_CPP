@@ -1,14 +1,21 @@
 # ashmaize_CPP
-a C++ version of ashmaize
-for better performance
+a C++ version of ashmaize <br>
 
-C++ file is maintained
+Only C++ file is written <br>
 Rust file for compare correctness and speed
+
+Follow C++11 standard <br>
+non-standard part: <br>
+__uint128_t <br>
+case 0 ... 4: <br>
+only Clang support __builtin_bitreverse64
+
+Multi thread test use OpenMP in C++ and Rayon in C <br>
 
 C++ is not allow for Repository name
 
-original from 
-https://github.com/input-output-hk/ce-ashmaize
+original from <br>
+https://github.com/input-output-hk/ce-ashmaize <br>
 58d6a1f commitment
 
 # License

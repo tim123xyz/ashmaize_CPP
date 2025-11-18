@@ -1,0 +1,16 @@
+[package]
+name = "ashmaize_py"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rayon = "1.11.0"
+
+[dependencies.ashmaize]
+path = "ce-ashmaize"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
+strip = true
