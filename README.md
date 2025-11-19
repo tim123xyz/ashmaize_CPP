@@ -15,6 +15,9 @@ Multi thread test use OpenMP in C++ and Rayon in C <br>
 Next to Do: <br>
 remove __builtin_bitreverse64 <br>
 remove sodium <br>
+use std::array instead of std::vector as much as possible <br>
+change the struct better <br>
+better code format <br>
 more acceleration
 
 C++ is not allow for Repository name
@@ -23,10 +26,13 @@ original from <br>
 https://github.com/input-output-hk/ce-ashmaize <br>
 58d6a1f commitment
 
+some know problem !!!
+
 # License
 
 This project is licensed under either of the following licenses:
 
 * Apache License, Version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or
   http://www.apache.org/licenses/LICENSE-2.0)
+
 
