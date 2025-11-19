@@ -4,7 +4,7 @@ a C++ version of ashmaize <br>
 Only C++ file is written <br>
 Rust file for compare correctness and speed
 
-use C++11 standard and sodium <br>
+use C++11 standard and blake2 <br>
 non-standard part: <br>
 __uint128_t <br>
 case 0 ... 4: <br>
@@ -14,15 +14,17 @@ Multi thread test use OpenMP in C++ and Rayon in C <br>
 
 Next to Do: <br>
 remove __builtin_bitreverse64 <br>
-remove sodium <br>
-use std::array instead of std::vector as much as possible <br>
 change the struct better <br>
 better code format <br>
 more acceleration
 
 C++ is not allow for Repository name
 
-original from <br>
+Blake2 from <br>
+https://github.com/BLAKE2/BLAKE2 <br>
+ed1974e commitment
+
+Rust from <br>
 https://github.com/input-output-hk/ce-ashmaize <br>
 58d6a1f commitment
 
