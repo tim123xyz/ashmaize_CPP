@@ -24,7 +24,7 @@ Blake2 from <br>
 https://github.com/BLAKE2/BLAKE2 <br>
 ed1974e commitment
 
-Rust from <br>
+ce-ashmaize in Rust from <br>
 https://github.com/input-output-hk/ce-ashmaize <br>
 58d6a1f commitment
 
@@ -36,6 +36,7 @@ This project is licensed under either of the following licenses:
 
 * Apache License, Version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or
   http://www.apache.org/licenses/LICENSE-2.0)
+
 
 
 
