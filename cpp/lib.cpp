@@ -1,19 +1,9 @@
 #include "lib.h"
-#include "rom.h"
 
 #include <algorithm>
 #include <cstring>
+#include <array>
 #include <vector>
-
-const size_t INSTR_SIZE = 20;
-const size_t REGS_BITS = 5;
-const size_t NB_REGS = 1 << REGS_BITS;
-const uint8_t REGS_INDEX_MASK = NB_REGS - 1;
-const size_t REGISTER_SIZE = sizeof(Register);
-const uint32_t REGISTER_BITS = static_cast<uint32_t>(REGISTER_SIZE * 8);
-const size_t DIGEST_SIZE = 64;
-const size_t DIGEST_WORDS = DIGEST_SIZE / REGISTER_SIZE;
-const uint64_t ISQRT_INITIAL_BIT = static_cast<uint64_t>(1) << (REGISTER_BITS - 2);
 
 Program::Program(uint32_t nb_instrs) {
     size_t size = nb_instrs * INSTR_SIZE;
@@ -25,33 +15,27 @@ const uint8_t* Program::at(uint32_t i) const {
     return instructions.data()+start;
 }
 
-void Program::shuffle(const std::vector<uint8_t> &seed) {
-    hprime(instructions, seed);
+void Program::shuffle(const std::array<uint8_t,DIGEST_SIZE> &seed) {
+    hprime(instructions.data(), instructions.size(), seed.data(), seed.size());
 }
 
 VM::VM(const RomDigest &rom_digest, uint32_t nb_instrs, const std::vector<uint8_t> &salt)
     : program(nb_instrs) {
-    const size_t REGS_CONTENT_SIZE = REGISTER_SIZE * NB_REGS;
+    constexpr size_t REGS_CONTENT_SIZE = REGISTER_SIZE * NB_REGS;
 
-    buf.resize(DIGEST_SIZE);
-
-    std::vector<uint8_t> init_buffer (REGS_CONTENT_SIZE + 3 * DIGEST_SIZE);
+    std::array<uint8_t,REGS_CONTENT_SIZE + 3*DIGEST_SIZE> init_buffer;
 
     std::vector<uint8_t> init_buffer_input (DIGEST_SIZE+salt.size());
     std::memcpy(init_buffer_input.data(), rom_digest.data(), DIGEST_SIZE);
     std::memcpy(init_buffer_input.data()+DIGEST_SIZE, salt.data(), salt.size());
-    hprime(init_buffer, init_buffer_input);
+    hprime(init_buffer.data(), init_buffer.size(), init_buffer_input.data(), init_buffer_input.size());
 
-    regs = std::vector<Register> (NB_REGS);
-    for(size_t i=0; i<regs.size(); i++) {
-        regs[i] = *reinterpret_cast<const Register*>(init_buffer.data()+REGISTER_SIZE*i);
-    }
+    std::memcpy(regs.data(), init_buffer.data(), REGISTER_SIZE*regs.size());
 
-    crypto_generichash_init(&prog_digest, NULL, 0, DIGEST_SIZE);
-    crypto_generichash_update(&prog_digest, init_buffer.data()+REGS_CONTENT_SIZE, DIGEST_SIZE);
-    crypto_generichash_init(&mem_digest, NULL, 0, DIGEST_SIZE);
-    crypto_generichash_update(&mem_digest, init_buffer.data()+REGS_CONTENT_SIZE+DIGEST_SIZE, DIGEST_SIZE);
-    prog_seed.resize(DIGEST_SIZE);
+    blake2b_init(&prog_digest, DIGEST_SIZE);
+    blake2b_update(&prog_digest, init_buffer.data()+REGS_CONTENT_SIZE, DIGEST_SIZE);
+    blake2b_init(&mem_digest, DIGEST_SIZE);
+    blake2b_update(&mem_digest, init_buffer.data()+REGS_CONTENT_SIZE+DIGEST_SIZE, DIGEST_SIZE);
     std::memcpy(prog_seed.data(), init_buffer.data()+REGS_CONTENT_SIZE+2*DIGEST_SIZE, DIGEST_SIZE);
 
     ip = 0;
@@ -77,27 +61,27 @@ void VM::post_instructions(void) {
     uint64_t _sum_regs = sum_regs();
 
     st = prog_digest;
-    crypto_generichash_update(&st, reinterpret_cast<uint8_t*>(&_sum_regs), sizeof(_sum_regs));
-    crypto_generichash_final(&st, prog_seed.data(), DIGEST_SIZE);
+    blake2b_update(&st, &_sum_regs, sizeof(_sum_regs));
+    blake2b_final(&st, prog_seed.data(), prog_seed.size());
 
     st = mem_digest;
-    crypto_generichash_update(&st, reinterpret_cast<uint8_t*>(&_sum_regs), sizeof(_sum_regs));
-    crypto_generichash_final(&st, buf.data(), DIGEST_SIZE);
+    blake2b_update(&st, &_sum_regs, sizeof(_sum_regs));
+    blake2b_final(&st, buf.data(), DIGEST_SIZE);
 
-    crypto_generichash_init(&st, NULL, 0, DIGEST_SIZE);
-    crypto_generichash_update(&st, prog_seed.data(), DIGEST_SIZE);
-    crypto_generichash_update(&st, buf.data(), DIGEST_SIZE);
-    crypto_generichash_update(&st, reinterpret_cast<uint8_t*>(&loop_counter), 4);
-    crypto_generichash_final(&st, buf.data(), DIGEST_SIZE);
-    std::vector<uint8_t> mixing_out (NB_REGS * REGISTER_SIZE * 32);
-    hprime(mixing_out, buf);
+    blake2b_init(&st, DIGEST_SIZE);
+    blake2b_update(&st, prog_seed.data(), prog_seed.size());
+    blake2b_update(&st, buf.data(), DIGEST_SIZE);
+    blake2b_update(&st, &loop_counter, sizeof(loop_counter));
+    blake2b_final(&st, buf.data(), DIGEST_SIZE);
+    std::array<uint8_t,NB_REGS*REGISTER_SIZE*32> mixing_out;
+    hprime(mixing_out.data(), mixing_out.size(), buf.data(), buf.size());
 
-    for(size_t i=0; i<mixing_out.size(); i+=NB_REGS * REGISTER_SIZE) {
-        for(size_t j=0; j<regs.size(); j++) {
-            regs[j] ^= *reinterpret_cast<const Register*>(mixing_out.data()+i+REGISTER_SIZE*j);
-        }
+    uint8_t* __restrict out = reinterpret_cast<uint8_t*>(regs.data());
+    uint8_t* __restrict base = mixing_out.data();
+    for(size_t i=0; i<32; i++) {
+        xorbuf<NB_REGS*REGISTER_SIZE>(out, base);
+        base += NB_REGS*REGISTER_SIZE;
     }
-
     loop_counter += 1;
     return;
 }
@@ -112,18 +96,16 @@ void VM::execute(const Rom &rom, uint32_t instr) {
     return;
 }
 
-std::vector<uint8_t> VM::finalize(void) {
-    crypto_generichash_init(&st, NULL, 0, DIGEST_SIZE);
-    crypto_generichash_final(&prog_digest, buf.data(), DIGEST_SIZE);
-    crypto_generichash_update(&st, buf.data(), DIGEST_SIZE);
-    crypto_generichash_final(&mem_digest, buf.data(), DIGEST_SIZE);
-    crypto_generichash_update(&st, buf.data(), DIGEST_SIZE);
-    crypto_generichash_update(&st, reinterpret_cast<uint8_t*>(&memory_counter), 4);
-    for(Register &r : regs) {
-        crypto_generichash_update(&st, reinterpret_cast<uint8_t*>(&r), REGISTER_SIZE);
-    }
-    std::vector<uint8_t> res (DIGEST_SIZE);
-    crypto_generichash_final(&st, res.data(), DIGEST_SIZE);
+std::array<uint8_t,DIGEST_SIZE> VM::finalize(void) {
+    blake2b_init(&st, DIGEST_SIZE);
+    blake2b_final(&prog_digest, buf.data(), DIGEST_SIZE);
+    blake2b_update(&st, buf.data(), DIGEST_SIZE);
+    blake2b_final(&mem_digest, buf.data(), DIGEST_SIZE);
+    blake2b_update(&st, buf.data(), DIGEST_SIZE);
+    blake2b_update(&st, &memory_counter, sizeof(memory_counter));
+    blake2b_update(&st, regs.data(), REGISTER_SIZE*regs.size());
+    std::array<uint8_t,DIGEST_SIZE> res;
+    blake2b_final(&st, res.data(), res.size());
     return res;
 }
 
@@ -147,8 +129,8 @@ void VM::execute_one_instruction(const Rom &rom) {
     opcode = prog_chunk[0];
     op1 = prog_chunk[1] >> 4;
     op2 = prog_chunk[1] & 0x0f;
-    
-    rs = (static_cast<uint16_t>(prog_chunk[2]) << 8) | (static_cast<uint16_t>(prog_chunk[3]));
+
+    rs = (static_cast<uint16_t>(prog_chunk[2]) << 8) | (static_cast<uint16_t>(prog_chunk[3])); // bswap not memcpy
     r1 = static_cast<uint8_t>(rs >> (2*REGS_BITS)) & REGS_INDEX_MASK;
     r2 = static_cast<uint8_t>(rs >> REGS_BITS) & REGS_INDEX_MASK;
     r3 = static_cast<uint8_t>(rs) & REGS_INDEX_MASK;
@@ -202,22 +184,22 @@ void VM::execute_one_instruction(const Rom &rom) {
             break;
         case 248 ... 255:
             src2 = decode_src(op2, r2, lit2, rom);
-            crypto_generichash_init(&st, NULL, 0, DIGEST_SIZE);
-            crypto_generichash_update(&st, reinterpret_cast<uint8_t*>(&src1), REGISTER_SIZE);
-            crypto_generichash_update(&st, reinterpret_cast<uint8_t*>(&src2), REGISTER_SIZE);
-            crypto_generichash_final(&st, buf.data(), DIGEST_SIZE);
+            blake2b_init(&st, DIGEST_SIZE);
+            blake2b_update(&st, &src1, REGISTER_SIZE);
+            blake2b_update(&st, &src2, REGISTER_SIZE);
+            blake2b_final(&st, buf.data(), DIGEST_SIZE);
             std::memcpy(regs.data()+r3, buf.data()+REGISTER_SIZE*(opcode-248), REGISTER_SIZE);
             break;
     }
-    crypto_generichash_update(&prog_digest, prog_chunk, INSTR_SIZE);
+    blake2b_update(&prog_digest, prog_chunk, INSTR_SIZE);
 }
 
-std::vector<uint8_t> hash(const std::vector<uint8_t> &salt, const Rom &rom, uint32_t nb_loops, uint32_t nb_instrs) {
+std::array<uint8_t,DIGEST_SIZE> hash(const std::vector<uint8_t> &salt, const Rom &rom, uint32_t nb_loops, uint32_t nb_instrs) {
     VM vm(rom.digest, nb_instrs, salt);
     for(uint32_t i=0; i<nb_loops; i++) {
         vm.execute(rom, nb_instrs);
     }
-    std::vector<uint8_t> res = vm.finalize();
+    std::array<uint8_t,DIGEST_SIZE> res = vm.finalize();
     return res;
 }
 
@@ -239,23 +221,23 @@ uint64_t isqrt(uint64_t n) {
 
 uint64_t VM::mem_access64(const Rom &rom, uint32_t addr) {
     const uint8_t* mem = rom.at(addr);
-    crypto_generichash_update(&mem_digest, mem, DATASET_ACCESS_SIZE);
+    blake2b_update(&mem_digest, mem, DIGEST_SIZE);
     memory_counter += 1;
 
-    const size_t lanes = DATASET_ACCESS_SIZE / REGISTER_SIZE;
+    const size_t lanes = DIGEST_SIZE / REGISTER_SIZE;
     const size_t idx = (memory_counter % lanes) * REGISTER_SIZE;
     return *reinterpret_cast<const Register*>(mem + idx);
 }
 
 uint64_t VM::special1_value64(void) {
     st = prog_digest;
-    crypto_generichash_final(&st, buf.data(), DIGEST_SIZE);
+    blake2b_final(&st, buf.data(), DIGEST_SIZE);
     return *reinterpret_cast<Register*>(buf.data());
 }
 
 uint64_t VM::special2_value64(void) {
     st = mem_digest;
-    crypto_generichash_final(&st, buf.data(), DIGEST_SIZE);
+    blake2b_final(&st, buf.data(), DIGEST_SIZE);
     return *reinterpret_cast<Register*>(buf.data());
 }
 

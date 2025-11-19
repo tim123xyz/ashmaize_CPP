@@ -2,29 +2,28 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <array>
 #include <vector>
-
-#include <sodium.h>
 
 #include "rom.h"
 
-extern const size_t INSTR_SIZE;
-extern const size_t REGS_BITS;
-extern const size_t NB_REGS;
-extern const uint8_t REGS_INDEX_MASK;
+
+constexpr size_t INSTR_SIZE = 20;
+constexpr size_t REGS_BITS = 5;
+constexpr size_t NB_REGS = 1 << REGS_BITS;
+constexpr uint8_t REGS_INDEX_MASK = NB_REGS - 1;
 
 using Register = uint64_t;
 
-extern const size_t REGISTER_SIZE;
-extern const uint32_t REGISTER_BITS;
-extern const size_t DIGEST_SIZE;
-extern const size_t DIGEST_WORDS;
-extern const uint64_t ISQRT_INITIAL_BIT;
+constexpr size_t REGISTER_SIZE = sizeof(Register);
+constexpr uint32_t REGISTER_BITS = static_cast<uint32_t>(REGISTER_SIZE * 8);
+constexpr size_t DIGEST_WORDS = DIGEST_SIZE / REGISTER_SIZE;
+constexpr uint64_t ISQRT_INITIAL_BIT = static_cast<uint64_t>(1) << (REGISTER_BITS - 2);
 
 struct Program {
     explicit Program(uint32_t nb_instrs);
     const uint8_t* at(uint32_t i) const;
-    void shuffle(const std::vector<uint8_t> &seed);
+    void shuffle(const std::array<uint8_t,DIGEST_SIZE> &seed);
 
 private:
     std::vector<uint8_t> instructions;
@@ -38,20 +37,20 @@ struct VM {
     void execute(const Rom &rom, uint32_t instr);
     void execute_one_instruction(const Rom &rom);
     uint64_t decode_src(uint8_t &op,uint8_t &r,uint64_t &lit, const Rom &rom);
-    std::vector<uint8_t> finalize(void);
+    std::array<uint8_t,DIGEST_SIZE> finalize(void);
 
     uint64_t mem_access64(const Rom &rom, uint32_t addr);
     uint64_t special1_value64(void);
     uint64_t special2_value64(void);
 
     Program program;
-    std::vector<Register> regs;
+    std::array<Register,NB_REGS> regs;
     uint32_t ip;
-    crypto_generichash_state st;
-    crypto_generichash_state prog_digest;
-    crypto_generichash_state mem_digest;
-    std::vector<uint8_t> prog_seed;
-    std::vector<uint8_t> buf;
+    blake2b_state st;
+    blake2b_state prog_digest;
+    blake2b_state mem_digest;
+    std::array<uint8_t,DIGEST_SIZE> prog_seed;
+    std::array<uint8_t,DIGEST_SIZE> buf;
     uint32_t memory_counter;
     uint32_t loop_counter;
 
@@ -61,7 +60,7 @@ struct VM {
     uint64_t lit1, lit2, src1, src2;
 };
 
-std::vector<uint8_t> hash(const std::vector<uint8_t> &salt, const Rom &rom, uint32_t nb_loops, uint32_t nb_instrs);
+std::array<uint8_t,DIGEST_SIZE> hash(const std::vector<uint8_t> &salt, const Rom &rom, uint32_t nb_loops, uint32_t nb_instrs);
 
 uint64_t isqrt(uint64_t n);
 uint64_t rotate_left(uint64_t v, uint32_t n);
